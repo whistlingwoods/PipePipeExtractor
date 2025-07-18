@@ -116,6 +116,8 @@ public abstract class StreamingService {
     public SponsorBlockApiSettings sponsorBlockApiSettings = null;
     
     private int loadingTimeout = 5;
+    private boolean fetchFullPlaylist = false;
+    private long feedFetchInterval = 0;
 
 
     /**
