@@ -34,11 +34,7 @@ import org.schabi.newpipe.extractor.ServiceList;
 import org.schabi.newpipe.extractor.downloader.CancellableCall;
 import org.schabi.newpipe.extractor.downloader.Downloader;
 import org.schabi.newpipe.extractor.downloader.Response;
-import org.schabi.newpipe.extractor.exceptions.AccountTerminatedException;
-import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException;
-import org.schabi.newpipe.extractor.exceptions.ExtractionException;
-import org.schabi.newpipe.extractor.exceptions.ParsingException;
-import org.schabi.newpipe.extractor.exceptions.ReCaptchaException;
+import org.schabi.newpipe.extractor.exceptions.*;
 import org.schabi.newpipe.extractor.localization.ContentCountry;
 import org.schabi.newpipe.extractor.localization.Localization;
 import org.schabi.newpipe.extractor.playlist.PlaylistInfo;
@@ -165,7 +161,7 @@ YoutubeParsingHelper {
      * such as <a href="https://www.apkmirror.com/apk/google-inc/youtube/">APKMirror</a>.
      * </p>
      */
-    private static final String ANDROID_YOUTUBE_CLIENT_VERSION = "19.28.35";
+    private static final String ANDROID_YOUTUBE_CLIENT_VERSION = "21.03.36";
 
     /**
      * The InnerTube API key used by the {@code ANDROID} client. Found with the help of
@@ -1044,7 +1040,16 @@ YoutubeParsingHelper {
             JsonArray thumbnails = infoItem.getObject("thumbnail").getArray("thumbnails");
             return fixThumbnailUrl(thumbnails.getObject(thumbnails.size() - 1).getString("url"));
         } catch (final Exception e) {
-            throw new ParsingException("Could not get thumbnail url", e);
+            // lockupViewModel format
+            try {
+                JsonArray thumbnails = infoItem.getObject("contentImage")
+                        .getObject("thumbnailViewModel")
+                        .getObject("image")
+                        .getArray("sources");
+                return fixThumbnailUrl(thumbnails.getObject(thumbnails.size() - 1).getString("url"));
+            } catch (final Exception e2) {
+                throw new ParsingException("Could not get thumbnail url", e2);
+            }
         }
     }
 
@@ -1322,7 +1327,7 @@ YoutubeParsingHelper {
                 .value("clientScreen", "WATCH")
                 .value("platform", "MOBILE")
                 .value("osName", "Android")
-                .value("osVersion", "15")
+                .value("osVersion", "16")
                 .value("visitorData", visitorData)
                 /*
                 A valid Android SDK version is required to be sure to get a valid player
@@ -1335,7 +1340,7 @@ YoutubeParsingHelper {
                 The Android SDK version corresponding to the Android version used in
                 requests is sent
                 */
-                .value("androidSdkVersion", 35)
+                .value("androidSdkVersion", 36)
                 .value("hl", localization.getLocalizationCode())
                 .value("gl", contentCountry.getCountryCode())
                 .value("utcOffsetMinutes", 0)
@@ -1477,13 +1482,16 @@ YoutubeParsingHelper {
                         JsonObject webPlayerResponse;
                         try {
                             webPlayerResponse = JsonUtils.toJsonObject(getValidJsonResponseBody(response));
+                            if (Objects.equals(webPlayerResponse.getObject("playabilityStatus").getString("status"), "LOGIN_REQUIRED")) {
+                                throw new AntiBotException(webPlayerResponse.getObject("playabilityStatus").getString("reason"));
+                            }
                             if (isPlayerResponseNotValid(webPlayerResponse, videoId)) {
                                 throw new ExtractionException("Initial WEB player response is not valid");
                             }
-                            // Save the playerResponse from the player endpoint of the desktop internal API because
-                            // the web endpoint may return UNPLAYABLE due to blocking, but metadata is still usable.
-                            streamExtractor.playerResponse = webPlayerResponse;
-                            streamExtractor.setStreamType();
+//                            // Save the playerResponse from the player endpoint of the desktop internal API because
+//                            // the web endpoint may return UNPLAYABLE due to blocking, but metadata is still usable.
+//                            streamExtractor.playerResponse = webPlayerResponse;
+//
                             // The microformat JSON object of the content is only returned on the WEB client,
                             // so we need to store it instead of getting it directly from the playerResponse
                             streamExtractor.playerMicroFormatRenderer = webPlayerResponse.getObject("microformat")
