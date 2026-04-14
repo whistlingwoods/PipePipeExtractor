@@ -187,4 +187,56 @@ public class YouTubeChannelTabExtractorTest {
             defaultTestMoreItems(extractor);
         }
     }
+
+    public static class Podcasts {
+        private static final String CHANNEL_ID = "UCpodcastTabFixture0000000";
+        private static YoutubeChannelTabExtractor extractor;
+
+        @BeforeAll
+        public static void setUp() throws ExtractionException {
+            extractor = (YoutubeChannelTabExtractor) YouTube.getChannelTabExtractorFromId(
+                    CHANNEL_ID, ChannelTabs.PODCASTS);
+        }
+
+        @Test
+        public void testServiceId() {
+            assertEquals(YouTube.getServiceId(), extractor.getServiceId());
+        }
+
+        @Test
+        public void testTab() {
+            assertEquals(ChannelTabs.PODCASTS, extractor.getTab());
+        }
+
+        @Test
+        public void testId() throws ParsingException {
+            assertEquals(CHANNEL_ID, extractor.getId());
+        }
+
+        @Test
+        public void testUrl() throws ParsingException {
+            assertEquals(
+                    "https://www.youtube.com/channel/" + CHANNEL_ID + "/podcasts",
+                    extractor.getUrl());
+        }
+
+        @Test
+        public void testPodcastsParams() throws Exception {
+            final java.lang.reflect.Method method = YoutubeChannelTabExtractor.class
+                    .getDeclaredMethod("getChannelTabsParameters");
+            method.setAccessible(true);
+            final String params = (String) method.invoke(extractor);
+            assertEquals("Eghwb2RjYXN0c_IGBQoDugEA", params);
+        }
+
+        @Test
+        public void testNormalizeTabUrl() throws Exception {
+            final java.lang.reflect.Method method = YoutubeChannelTabExtractor.class
+                    .getDeclaredMethod("normalizeTabUrl", String.class);
+            method.setAccessible(true);
+            final String normalized = (String) method.invoke(null,
+                    "/channel/UCpodcastTabFixture0000000/podcasts?view=57#fragment");
+            assertEquals("/channel/UCpodcastTabFixture0000000/podcasts", normalized);
+        }
+    }
 }
