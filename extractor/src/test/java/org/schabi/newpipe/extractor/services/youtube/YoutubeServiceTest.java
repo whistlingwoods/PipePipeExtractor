@@ -55,6 +55,11 @@ public class YoutubeServiceTest {
     }
 
     @Test
+    void testRecommendedPodcastsKioskAvailable() {
+        assertTrue(kioskList.getAvailableKiosks().contains("Recommended Podcasts"));
+    }
+
+    @Test
     void testGetDefaultKiosk() throws Exception {
         assertEquals(kioskList.getDefaultKioskExtractor(null).getId(), "Trending");
     }

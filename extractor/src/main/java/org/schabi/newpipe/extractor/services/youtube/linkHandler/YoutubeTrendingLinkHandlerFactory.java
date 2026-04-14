@@ -34,21 +34,40 @@ import java.util.List;
 
 public class YoutubeTrendingLinkHandlerFactory extends ListLinkHandlerFactory {
 
+    private static final String TRENDING_ID = "Trending";
+    private static final String RECOMMENDED_LIVES_ID = "Recommended Lives";
+    private static final String RECOMMENDED_PODCASTS_ID = "Recommended Podcasts";
+    private static final String TRENDING_URL = "https://www.youtube.com/feed/trending";
+    private static final String RECOMMENDED_LIVES_URL =
+            "https://www.youtube.com/channel/UC4R8DWoMoI7CAwX8_LjQHig";
+    private static final String RECOMMENDED_PODCASTS_URL = "https://www.youtube.com/podcasts/videos";
+
     public String getUrl(final String id,
                          final List<FilterItem> contentFilters,
                          final List<FilterItem> sortFilter) {
-        if(!id.equals("Trending")){
-            return "https://www.youtube.com/channel/UC4R8DWoMoI7CAwX8_LjQHig";
+        if (TRENDING_ID.equals(id)) {
+            return TRENDING_URL;
         }
-        return "https://www.youtube.com/feed/trending";
+
+        if (RECOMMENDED_PODCASTS_ID.equals(id)) {
+            return RECOMMENDED_PODCASTS_URL;
+        }
+
+        return RECOMMENDED_LIVES_URL;
     }
 
     @Override
     public String getId(final String url) {
-        if(url.equals("https://www.youtube.com/feed/trending")){
-            return "Trending";
+        if (TRENDING_URL.equals(url)) {
+            return TRENDING_ID;
         }
-        return "Recommended Lives";
+
+        if (RECOMMENDED_PODCASTS_URL.equals(url)
+                || "https://www.youtube.com/podcasts".equals(url)) {
+            return RECOMMENDED_PODCASTS_ID;
+        }
+
+        return RECOMMENDED_LIVES_ID;
     }
 
     @Override
@@ -62,6 +81,11 @@ public class YoutubeTrendingLinkHandlerFactory extends ListLinkHandlerFactory {
 
         final String urlPath = urlObj.getPath();
         return Utils.isHTTP(urlObj) && (isYoutubeURL(urlObj) || isInvidiousURL(urlObj))
-                && (urlPath.equals("/feed/trending") || urlPath.equals("/channel/UC4R8DWoMoI7CAwX8_LjQHig"));
+                && (urlPath.equals("/feed/trending")
+                || urlPath.equals("/channel/UC4R8DWoMoI7CAwX8_LjQHig")
+                || urlPath.equals("/podcasts")
+                || urlPath.equals("/podcasts/")
+                || urlPath.equals("/podcasts/videos")
+                || urlPath.equals("/podcasts/videos/"));
     }
 }
