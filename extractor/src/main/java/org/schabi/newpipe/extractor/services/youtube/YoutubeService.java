@@ -172,7 +172,16 @@ public class YoutubeService extends StreamingService {
                     new YoutubeTrendingLinkHandlerFactory(),
                     "Recommended Lives"
             );
-            list.setDefaultKiosk("Recommended Lives");
+            list.addKioskEntry(
+                    (streamingService, url, id) -> new YoutubeTrendingExtractor(
+                            YoutubeService.this,
+                            new YoutubeTrendingLinkHandlerFactory().fromUrl(url),
+                            id
+                    ),
+                    new YoutubeTrendingLinkHandlerFactory(),
+                    "Recommended Podcasts"
+            );
+            list.setDefaultKiosk("Recommended Podcasts");
         } catch (final Exception e) {
             throw new ExtractionException(e);
         }

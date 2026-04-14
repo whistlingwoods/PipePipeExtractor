@@ -47,6 +47,12 @@ import static org.schabi.newpipe.extractor.utils.Utils.UTF_8;
 import static org.schabi.newpipe.extractor.utils.Utils.isNullOrEmpty;
 
 public class YoutubeTrendingExtractor extends KioskExtractor<StreamInfoItem> {
+    private static final String KIOSK_RECOMMENDED_PODCASTS = "Recommended Podcasts";
+    private static final String RECOMMENDED_LIVES_BROWSE_ID = "UC4R8DWoMoI7CAwX8_LjQHig";
+    private static final String RECOMMENDED_PODCASTS_BROWSE_ID = "FEpodcasts_destination";
+    private static final String RECOMMENDED_PODCASTS_PARAMS = "qgcCCAM=";
+    private static final long RECOMMENDED_PODCASTS_MAX_ITEMS = 40;
+
     private JsonObject initialData;
 
     public YoutubeTrendingExtractor(final StreamingService service,
@@ -58,13 +64,21 @@ public class YoutubeTrendingExtractor extends KioskExtractor<StreamInfoItem> {
     @Override
     public void onFetchPage(@Nonnull final Downloader downloader)
             throws IOException, ExtractionException {
-        // @formatter:off
-        final byte[] body = JsonWriter.string(prepareDesktopJsonBuilder(getExtractorLocalization(),
-                        getExtractorContentCountry())
-                .value("browseId", "UC4R8DWoMoI7CAwX8_LjQHig")
-                .done())
-                .getBytes(UTF_8);
-        // @formatter:on
+        final byte[] body;
+        if (KIOSK_RECOMMENDED_PODCASTS.equals(getId())) {
+            body = JsonWriter.string(prepareDesktopJsonBuilder(getExtractorLocalization(),
+                            getExtractorContentCountry())
+                    .value("browseId", RECOMMENDED_PODCASTS_BROWSE_ID)
+                    .value("params", RECOMMENDED_PODCASTS_PARAMS)
+                    .done())
+                    .getBytes(UTF_8);
+        } else {
+            body = JsonWriter.string(prepareDesktopJsonBuilder(getExtractorLocalization(),
+                            getExtractorContentCountry())
+                    .value("browseId", RECOMMENDED_LIVES_BROWSE_ID)
+                    .done())
+                    .getBytes(UTF_8);
+        }
 
         initialData = getJsonPostResponse("browse", body, getExtractorLocalization());
     }
@@ -86,6 +100,8 @@ public class YoutubeTrendingExtractor extends KioskExtractor<StreamInfoItem> {
         } else if (header.has("carouselHeaderRenderer")) {
             name = header.getObject("carouselHeaderRenderer").getArray("contents").getObject(0)
                     .getObject("topicChannelDetailsRenderer").getObject("title").getString("simpleText");
+        } else if (header.has("pageHeaderRenderer")) {
+            name = header.getObject("pageHeaderRenderer").getString("pageTitle");
         }
 
         if (isNullOrEmpty(name)) {
@@ -99,6 +115,9 @@ public class YoutubeTrendingExtractor extends KioskExtractor<StreamInfoItem> {
     public InfoItemsPage<StreamInfoItem> getInitialPage() throws ParsingException {
         final StreamInfoItemsCollector collector = new StreamInfoItemsCollector(getServiceId());
         final TimeAgoParser timeAgoParser = getTimeAgoParser();
+        final long maximumItems = KIOSK_RECOMMENDED_PODCASTS.equals(getId())
+                ? RECOMMENDED_PODCASTS_MAX_ITEMS
+                : Long.MAX_VALUE;
         final JsonObject tabContent = getTrendingTabRenderer().getObject("content");
 
         if (tabContent.has("richGridRenderer")) {
@@ -110,8 +129,10 @@ public class YoutubeTrendingExtractor extends KioskExtractor<StreamInfoItem> {
                     // Filter Trending shorts and Recently trending sections
                     .filter(content -> content.has("richItemRenderer"))
                     .map(content -> content.getObject("richItemRenderer")
-                            .getObject("content")
-                            .getObject("videoRenderer"))
+                            .getObject("content"))
+                    .filter(content -> content.has("videoRenderer"))
+                    .map(content -> content.getObject("videoRenderer"))
+                    .limit(maximumItems)
                     .forEachOrdered(videoRenderer -> collector.commit(
                             new YoutubeStreamInfoItemExtractor(videoRenderer, timeAgoParser)));
         } else if (tabContent.has("sectionListRenderer")) {
@@ -136,6 +157,7 @@ public class YoutubeTrendingExtractor extends KioskExtractor<StreamInfoItem> {
                     .filter(JsonObject.class::isInstance)
                     .map(JsonObject.class::cast)
                     .map(item -> item.getObject("videoRenderer"))
+                    .limit(maximumItems)
                     .forEachOrdered(videoRenderer -> collector.commit(
                             new YoutubeStreamInfoItemExtractor(videoRenderer, timeAgoParser)));
         }
@@ -159,6 +181,7 @@ public class YoutubeTrendingExtractor extends KioskExtractor<StreamInfoItem> {
                     .filter(JsonObject.class::isInstance)
                     .map(JsonObject.class::cast)
                     .map(item -> item.getObject("gridVideoRenderer"))
+                    .limit(maximumItems)
                     .forEachOrdered(videoRenderer -> collector.commit(
                             new YoutubeStreamInfoItemExtractor(videoRenderer, timeAgoParser)));
         }
@@ -182,11 +205,12 @@ public class YoutubeTrendingExtractor extends KioskExtractor<StreamInfoItem> {
                     .map(content -> content.getObject("richItemRenderer")
                             .getObject("content")
                             .getObject("videoRenderer"))
+                    .limit(maximumItems)
                     .forEachOrdered(videoRenderer -> collector.commit(
                             new YoutubeStreamInfoItemExtractor(videoRenderer, timeAgoParser)));
         }
         if (collector.getItems().isEmpty()) {
-            throw new ParsingException("Could not get trending page");
+            throw new ParsingException("Could not get kiosk page: " + getId());
         }
 
         if (ServiceList.YouTube.getFilterTypes().contains("recommendations")) {
