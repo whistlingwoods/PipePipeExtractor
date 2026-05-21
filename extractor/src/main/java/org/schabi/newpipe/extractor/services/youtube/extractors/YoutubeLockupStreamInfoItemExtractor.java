@@ -272,20 +272,33 @@ public class YoutubeLockupStreamInfoItemExtractor implements StreamInfoItemExtra
                 .getObject("contentMetadataViewModel")
                 .getArray("metadataRows");
 
-        if (metadataRows.isEmpty()) {
-            return null;
+        for (int rowIndex = 0; rowIndex < metadataRows.size(); rowIndex++) {
+            final JsonArray metadataParts = metadataRows.getObject(rowIndex).getArray("metadataParts");
+            for (int partIndex = 0; partIndex < metadataParts.size(); partIndex++) {
+                final JsonObject text = metadataParts.getObject(partIndex).getObject("text");
+                final String content = text.getString("content");
+                if (isNullOrEmpty(content) || isViewCountText(content) || isUploadDateText(content)) {
+                    continue;
+                }
+                return text;
+            }
         }
 
-        final JsonArray metadataParts = metadataRows.getObject(0).getArray("metadataParts");
-        if (metadataParts.isEmpty()) {
-            return null;
-        }
-
-        return metadataParts.getObject(0).getObject("text");
+        return null;
     }
 
     @Nullable
     private JsonObject getUploaderNavigationEndpoint() {
+        final JsonObject uploaderText = getUploaderText();
+        if (uploaderText != null && uploaderText.has("commandRuns")) {
+            final JsonArray commandRuns = uploaderText.getArray("commandRuns");
+            if (!commandRuns.isEmpty()) {
+                return commandRuns.getObject(0)
+                        .getObject("onTap")
+                        .getObject("innertubeCommand");
+            }
+        }
+
         final JsonObject image = lockupMetadataViewModel.getObject("image");
         if (image == null || image.isEmpty()) {
             return null;
@@ -338,18 +351,9 @@ public class YoutubeLockupStreamInfoItemExtractor implements StreamInfoItemExtra
 
     @Override
     public boolean isUploaderVerified() throws ParsingException {
-        final JsonArray metadataRows = lockupMetadataViewModel.getObject("metadata")
-                .getObject("contentMetadataViewModel")
-                .getArray("metadataRows");
-
-        if (metadataRows.size() > 0) {
-            final JsonArray metadataParts = metadataRows.getObject(0).getArray("metadataParts");
-            if (metadataParts.size() > 0) {
-                final JsonArray attachmentRuns = metadataParts.getObject(0)
-                        .getObject("text")
-                        .getArray("attachmentRuns");
-                return hasArtistOrVerifiedIconBadgeAttachment(attachmentRuns);
-            }
+        final JsonObject uploaderText = getUploaderText();
+        if (uploaderText != null) {
+            return hasArtistOrVerifiedIconBadgeAttachment(uploaderText.getArray("attachmentRuns"));
         }
 
         return false;
@@ -418,6 +422,41 @@ public class YoutubeLockupStreamInfoItemExtractor implements StreamInfoItemExtra
         }
     }
 
+    private boolean isViewCountText(@Nullable final String text) {
+        if (isNullOrEmpty(text)) {
+            return false;
+        }
+
+        final String lowerCaseText = text.toLowerCase(Locale.ROOT);
+        return lowerCaseText.contains("view")
+                || lowerCaseText.contains("ukubukwa")
+                || lowerCaseText.contains("no views")
+                || lowerCaseText.contains("akukho ukubukwa")
+                || lowerCaseText.contains("akukho kubukwa")
+                || containsWatchingIndicator(lowerCaseText);
+    }
+
+    private boolean isUploadDateText(@Nullable final String text) {
+        if (isNullOrEmpty(text)) {
+            return false;
+        }
+
+        if (timeAgoParser != null) {
+            try {
+                timeAgoParser.parse(text);
+                return true;
+            } catch (final ParsingException ignored) {
+            }
+        }
+
+        try {
+            YoutubeParsingHelper.parseDateFrom(text);
+            return true;
+        } catch (final ParsingException ignored) {
+            return false;
+        }
+    }
+
     @Nullable
     @Override
     public String getTextualUploadDate() throws ParsingException {
@@ -425,15 +464,29 @@ public class YoutubeLockupStreamInfoItemExtractor implements StreamInfoItemExtra
                 .getObject("contentMetadataViewModel")
                 .getArray("metadataRows");
 
-        if (metadataRows.size() > 1) {
-            final JsonArray metadataParts = metadataRows.getObject(1).getArray("metadataParts");
-            if (metadataParts.size() > 1) {
-                final String uploadText = metadataParts.getObject(1)
+        for (int rowIndex = 0; rowIndex < metadataRows.size(); rowIndex++) {
+            final JsonArray metadataParts = metadataRows.getObject(rowIndex).getArray("metadataParts");
+            for (int partIndex = 0; partIndex < metadataParts.size(); partIndex++) {
+                final String uploadText = metadataParts.getObject(partIndex)
                         .getObject("text")
                         .getString("content");
 
-                if (!isNullOrEmpty(uploadText)) {
+                if (isNullOrEmpty(uploadText)) {
+                    continue;
+                }
+
+                if (timeAgoParser != null) {
+                    try {
+                        timeAgoParser.parse(uploadText);
+                        return uploadText;
+                    } catch (final ParsingException ignored) {
+                    }
+                }
+
+                try {
+                    YoutubeParsingHelper.parseDateFrom(uploadText);
                     return uploadText;
+                } catch (final ParsingException ignored) {
                 }
             }
         }
