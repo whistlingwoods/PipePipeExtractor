@@ -114,6 +114,7 @@ public abstract class StreamingService {
     
     private int loadingTimeout = 5;
     private boolean fetchFullPlaylist = false;
+    private boolean fetchDislike = true;
     private long feedFetchInterval = 0;
 
 
@@ -610,6 +611,14 @@ public abstract class StreamingService {
 
     public void setFetchFullPlaylist(boolean fetchFullPlaylist) {
         this.fetchFullPlaylist = fetchFullPlaylist;
+    }
+
+    public boolean isFetchDislike() {
+        return fetchDislike;
+    }
+
+    public void setFetchDislike(boolean fetchDislike) {
+        this.fetchDislike = fetchDislike;
     }
 
     public long getFeedFetchInterval() {
