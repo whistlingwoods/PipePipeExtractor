@@ -713,6 +713,7 @@ public class YoutubeStreamExtractor extends StreamExtractor {
     @Override
     public String getDashMpdUrl() throws ParsingException {
         assertPageFetched();
+        if (streamType == StreamType.VIDEO_STREAM)return "";
         if (streamType == StreamType.LIVE_STREAM && !StringUtils.isBlank(ServiceList.YouTube.getTokens())) {
             return "";
         }
@@ -1199,7 +1200,11 @@ public class YoutubeStreamExtractor extends StreamExtractor {
 
     public void setStreamType() {
         if (playerResponse.getObject("playabilityStatus").has("liveStreamability")) {
-            streamType = StreamType.LIVE_STREAM;
+            if (StringUtils.isBlank(ServiceList.YouTube.getTokens()) && !playerResponse.getObject(STREAMING_DATA).has("hlsManifestUrl")) {
+                streamType = StreamType.VIDEO_STREAM;
+            } else {
+                streamType = StreamType.LIVE_STREAM;
+            }
         } else if (playerResponse.getObject("videoDetails").getBoolean("isPostLiveDvr", false)) {
             streamType = StreamType.POST_LIVE_STREAM;
         } else {
@@ -1304,78 +1309,62 @@ public class YoutubeStreamExtractor extends StreamExtractor {
 
 
 
-    private void resetStreamingData() {
-        androidStreamingData = null;
-        iosStreamingData = null;
-        tvHtml5SimplyEmbedStreamingData = null;
-        webStreamingData = null;
-        safariStreamingData = null;
-        playerResponse = null;
-        nextResponse = null;
-        playerCaptionsTracklistRenderer = null;
-        videoPrimaryInfoRenderer = null;
-        videoSecondaryInfoRenderer = null;
-        streamType = null;
-    }
-
     @Override
     public void onFetchPage(@Nonnull final Downloader downloader)
             throws IOException, ExtractionException {
 
         final String videoId = getId();
-        final Localization localization = getExtractorLocalization();
+        final Localization localization = new Localization("en");
         final ContentCountry contentCountry = getExtractorContentCountry();
 
-        int sabrRetryCount = 0;
-        final int maxSabrRetries = 3;
+        errors.clear();
 
-        while (true) {
-            errors.clear();
-            resetStreamingData();
+        CancellableCall webPageCall = YoutubeParsingHelper.getWebPlayerResponse(
+                localization, contentCountry, videoId, this);
 
-            CancellableCall webPageCall = YoutubeParsingHelper.getWebPlayerResponse(
-                    localization, contentCountry, videoId, this);
-
-            CancellableCall androidCall = null;
-            CancellableCall safariCall = null;
+        CancellableCall androidCall = null;
+        CancellableCall safariCall = null;
 
             if (StringUtils.isBlank(ServiceList.YouTube.getTokens())) {
-                androidCall = fetchAndroidMobileJsonPlayer(contentCountry, localization, videoId);
+                androidCall = fetchAndroidVRJsonPlayer(contentCountry, localization, videoId);
             } else {
                 safariCall = fetchSafariJsonPlayer(contentCountry, localization, videoId);
             }
 
-            final byte[] body = JsonWriter.string(
-                    prepareDesktopJsonBuilder(localization, contentCountry)
-                            .value(VIDEO_ID, videoId)
-                            .value(CONTENT_CHECK_OK, true)
-                            .value(RACY_CHECK_OK, true)
-                            .done())
-                    .getBytes(StandardCharsets.UTF_8);
-           CancellableCall nextDataCall = getJsonPostResponseAsync(NEXT, body, localization, new Downloader.AsyncCallback() {
-                @Override
-                public void onSuccess(Response response) throws ExtractionException {
-                    try {
-                        nextResponse = JsonUtils.toJsonObject(getValidJsonResponseBody(response));
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        errors.add(e);
-                    }
+        final byte[] body = JsonWriter.string(
+                prepareDesktopJsonBuilder(localization, contentCountry)
+                        .value(VIDEO_ID, videoId)
+                        .value(CONTENT_CHECK_OK, true)
+                        .value(RACY_CHECK_OK, true)
+                        .done())
+                .getBytes(StandardCharsets.UTF_8);
+       CancellableCall nextDataCall = getJsonPostResponseAsync(NEXT, body, localization, new Downloader.AsyncCallback() {
+            @Override
+            public void onSuccess(Response response) throws ExtractionException {
+                try {
+                    nextResponse = JsonUtils.toJsonObject(getValidJsonResponseBody(response));
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    errors.add(e);
                 }
-            });
+            }
+        });
 
-            // fetch dislike
+        // fetch dislike
 
-            CancellableCall dislikeCall = downloader.getAsync("https://returnyoutubedislikeapi.com/votes?" + "videoId=" + videoId, new Downloader.AsyncCallback() {
-                @Override
-                public void onSuccess(Response response) throws ExtractionException {
-                    try {
-                        dislikeData = new JSONObject(getValidJsonResponseBody(response));
-                    } catch (JSONException | MalformedURLException e) {
-                        e.printStackTrace();
+            CancellableCall dislikeCall = null;
+            if (ServiceList.YouTube.isFetchDislike()) {
+                dislikeCall = downloader.getAsync("https://returnyoutubedislikeapi.com/votes?" + "videoId=" + videoId, new Downloader.AsyncCallback() {
+                    @Override
+                    public void onSuccess(Response response) throws ExtractionException {
+                        try {
+                            dislikeData = new JSONObject(getValidJsonResponseBody(response));
+                        } catch (JSONException | MalformedURLException e) {
+                            e.printStackTrace();
+                        }
                     }
-                }
-            });
+                });
+            }
             long startTime = System.nanoTime();
             do {
                 if (((StringUtils.isBlank(ServiceList.YouTube.getTokens()) && androidCall.isFinished())
@@ -1397,26 +1386,19 @@ public class YoutubeStreamExtractor extends StreamExtractor {
                     }
                     throw new ExtractionException(e) ;
                 }
-                throw new ExtractionException("Error occurs when fetching the page. Try increase the loading timeout in Settings.");
             }
 
-            // Check playability status from the actual stream data source
-            if (playerResponse != null) {
-                checkPlayabilityStatus(playerResponse.getObject("playabilityStatus"), videoId);
-                setStreamType();
-            }
+        // Check playability status from the actual stream data source
+        if (playerResponse != null) {
+            checkPlayabilityStatus(playerResponse.getObject("playabilityStatus"), videoId);
+            setStreamType();
+        }
 
-            if (streamType != StreamType.LIVE_STREAM && isSabrOnlyResponse()
-                    && getHlsManifestUrlFromStreamingData().isEmpty()) {
-                sabrRetryCount++;
-                if (sabrRetryCount > maxSabrRetries) {
-                    throw new ContentNotSupportedException(
-                            "YouTube returned SABR-only streaming data without usable stream URLs. "
-                            + "Try logging in to get HLS fallback streams.");
-                }
-                continue;
-            }
-            break;
+        if (streamType != StreamType.LIVE_STREAM && isSabrOnlyResponse()
+                && getHlsManifestUrlFromStreamingData().isEmpty()) {
+            throw new ContentNotSupportedException(
+                    "YouTube returned SABR-only streaming data without usable stream URLs. "
+                    + "Try logging in to get HLS fallback streams.");
         }
     }
 
@@ -1524,13 +1506,14 @@ public class YoutubeStreamExtractor extends StreamExtractor {
     }
 
     /**
-     * Fetch the Android Mobile API and assign the streaming data to the androidStreamingData JSON
+     * Fetch the Android VR API and assign the streaming data to the androidStreamingData JSON
      * object.
      */
-    private CancellableCall fetchAndroidMobileJsonPlayer(@Nonnull final ContentCountry contentCountry,
+    private CancellableCall fetchAndroidVRJsonPlayer(@Nonnull final ContentCountry contentCountry,
                                               @Nonnull final Localization localization,
                                               @Nonnull final String videoId)
             throws IOException, ExtractionException {
+        androidCpn = generateContentPlaybackNonce();
         final InnertubeClientRequestInfo innertubeClientRequestInfo =
                 InnertubeClientRequestInfo.ofAndroidClient();
 
@@ -1541,16 +1524,12 @@ public class YoutubeStreamExtractor extends StreamExtractor {
 
         String visitorData = YoutubeParsingHelper.getVisitorDataFromInnertube(innertubeClientRequestInfo,
                 localization, contentCountry, headers, YOUTUBEI_V1_GAPIS_URL, null, false);
-        androidCpn = generateContentPlaybackNonce();
-        final byte[] mobileBody = JsonWriter.string(
-                prepareAndroidMobileJsonBuilder(localization, contentCountry, visitorData)
-                        .object("playerRequest")
+        final byte[] body = JsonWriter.string(
+                prepareAndroidVRJsonBuilder(localization, contentCountry, visitorData)
                         .value(VIDEO_ID, videoId)
                         .value(CPN, androidCpn)
                         .value(CONTENT_CHECK_OK, true)
                         .value(RACY_CHECK_OK, true)
-                        .end()
-                        .value("disablePlayerResponse", false)
                         .done())
                 .getBytes(StandardCharsets.UTF_8);
 
@@ -1559,18 +1538,17 @@ public class YoutubeStreamExtractor extends StreamExtractor {
             public void onSuccess(Response response) throws ExtractionException {
                 try {
                     final JsonObject androidPlayerResponse = JsonUtils.toJsonObject(getValidJsonResponseBody(response));
-                    final JsonObject playerResponseObject = androidPlayerResponse.getObject("playerResponse");
-                    if (isPlayerResponseNotValid(playerResponseObject, videoId)) {
+                    if (isPlayerResponseNotValid(androidPlayerResponse, videoId)) {
                         return;
                     }
 
-                    YoutubeStreamExtractor.this.playerResponse = playerResponseObject;
+                    YoutubeStreamExtractor.this.playerResponse = androidPlayerResponse;
 
-                    final JsonObject streamingData = playerResponseObject.getObject(STREAMING_DATA);
+                    final JsonObject streamingData = androidPlayerResponse.getObject(STREAMING_DATA);
                     if (!isNullOrEmpty(streamingData)) {
                         androidStreamingData = streamingData;
                         if (isNullOrEmpty(playerCaptionsTracklistRenderer)) {
-                            playerCaptionsTracklistRenderer = playerResponseObject.getObject("captions")
+                            playerCaptionsTracklistRenderer = androidPlayerResponse.getObject("captions")
                                     .getObject("playerCaptionsTracklistRenderer");
                         }
                     }
@@ -1581,9 +1559,9 @@ public class YoutubeStreamExtractor extends StreamExtractor {
             }
         };
 
-        return getJsonAndroidPostResponseAsync("reel/reel_item_watch",
-                mobileBody, localization, "&t=" + generateTParameter()
-                        + "&id=" + videoId + "&$fields=playerResponse", callback);
+        return getJsonAndroidVRPostResponseAsync(PLAYER,
+                body, localization, "&t=" + generateTParameter()
+                        + "&id=" + videoId, callback);
     }
 
     /**

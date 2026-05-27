@@ -178,12 +178,12 @@ public class YoutubeStreamInfoItemExtractor implements StreamInfoItemExtractor {
 
         String name = getTextFromObject(source.getObject("title"));
         if (!isNullOrEmpty(name)) {
-            return name;
+            return localizeDeletedPrivateVideoTitle(name);
         }
 
         name = getTextFromObject(source.getObject("headline"));
         if (!isNullOrEmpty(name)) {
-            return name;
+            return localizeDeletedPrivateVideoTitle(name);
         }
 
         // lockupViewModel format
@@ -193,13 +193,23 @@ public class YoutubeStreamInfoItemExtractor implements StreamInfoItemExtractor {
                     .getObject("title")
                     .getString("content");
             if (!isNullOrEmpty(name)) {
-                return name;
+                return localizeDeletedPrivateVideoTitle(name);
             }
         } catch (final Exception ignored) {
             // Not a lockupViewModel format
         }
 
         throw new ParsingException("Could not get name");
+    }
+
+    private static String localizeDeletedPrivateVideoTitle(final String name) {
+        if (name.contains("Ividiyo esusiwe")) {
+            return "[Deleted video]";
+        }
+        if (name.contains("eyimfihlo")) {
+            return "[Private video]";
+        }
+        return name;
     }
 
 
@@ -441,6 +451,33 @@ public class YoutubeStreamInfoItemExtractor implements StreamInfoItemExtractor {
             return publishedTimeText;
         }
 
+        // fallback: videoInfo.runs format (e.g. playlistVideoRenderer with nested videoInfo)
+        try {
+            final JsonArray runs = videoInfo.getObject("videoInfo").getArray("runs");
+            for (final Object runObj : runs) {
+                final String text = ((JsonObject) runObj).getString("text");
+                if (isNullOrEmpty(text) || text.equals(" • ")) {
+                    continue;
+                }
+                if (text.contains("ukubukwa") || text.toLowerCase().contains("view")) {
+                    continue;
+                }
+                if (timeAgoParser != null) {
+                    try {
+                        timeAgoParser.parse(text);
+                        return text;
+                    } catch (final ParsingException ignored) {
+                    }
+                }
+                try {
+                    YoutubeParsingHelper.parseDateFrom(text);
+                    return text;
+                } catch (final ParsingException ignored) {
+                }
+            }
+        } catch (final Exception ignored) {
+        }
+
         // lockupViewModel format - iterate through all metadata like PipePipe
         try {
             final JsonArray metadataRows = videoInfo.getObject("metadata")
@@ -509,7 +546,12 @@ public class YoutubeStreamInfoItemExtractor implements StreamInfoItemExtractor {
             try {
                 return timeAgoParser.parse(textualUploadDate);
             } catch (final ParsingException e) {
-                throw new ParsingException("Could not get upload date", e);
+                try {
+                    return new DateWrapper(
+                            YoutubeParsingHelper.parseDateFrom(textualUploadDate), true);
+                } catch (final ParsingException e2) {
+                    throw new ParsingException("Could not get upload date", e);
+                }
             }
         }
         return null;
@@ -523,6 +565,30 @@ public class YoutubeStreamInfoItemExtractor implements StreamInfoItemExtractor {
             }
 
             if (!videoInfo.has("viewCountText")) {
+                // fallback: videoInfo.runs format (e.g. playlistVideoRenderer with nested videoInfo)
+                try {
+                    final JsonArray runs = videoInfo.getObject("videoInfo").getArray("runs");
+                    for (final Object runObj : runs) {
+                        final String text = ((JsonObject) runObj).getString("text");
+                        if (text != null
+                                && (text.toLowerCase().contains("view")
+                                || text.toLowerCase().contains("ukubukwa")
+                                || text.toLowerCase().contains("no views")
+                                || text.toLowerCase().contains("akukho"))) {
+                            if (text.toLowerCase().contains("no views")
+                                    || text.toLowerCase().contains("akukho ukubukwa")
+                                    || text.toLowerCase().contains("akukho kubukwa")) {
+                                return 0;
+                            } else if (text.toLowerCase().contains("recommended")
+                                    || text.toLowerCase().contains("okutusiwe")) {
+                                return -1;
+                            }
+                            return Utils.mixedNumberWordToLong(text);
+                        }
+                    }
+                } catch (final Exception ignored) {
+                }
+
                 // lockupViewModel format - iterate through all metadata like PipePipe
                 final JsonArray metadataRows = videoInfo.getObject("metadata")
                         .getObject("lockupMetadataViewModel")
@@ -682,6 +748,24 @@ public class YoutubeStreamInfoItemExtractor implements StreamInfoItemExtractor {
                     .getString("style", "").equals("BADGE_STYLE_TYPE_MEMBERS_ONLY")) {
                 return true;
             }
+        }
+        try {
+            final JsonArray metadataRows = videoInfo.getObject("metadata")
+                    .getObject("lockupMetadataViewModel")
+                    .getObject("metadata")
+                    .getObject("contentMetadataViewModel")
+                    .getArray("metadataRows");
+            for (final Object row : metadataRows) {
+                final JsonArray lockupBadges = ((JsonObject) row).getArray("badges");
+                for (final Object badge : lockupBadges) {
+                    if (((JsonObject) badge).getObject("badgeViewModel")
+                            .getString("badgeStyle", "").equals("BADGE_MEMBERS_ONLY")) {
+                        return true;
+                    }
+                }
+            }
+        } catch (final Exception ignored) {
+            // Not lockupViewModel format or no badges
         }
         return false;
     }
