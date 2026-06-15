@@ -1395,7 +1395,18 @@ public class YoutubeStreamExtractor extends StreamExtractor {
                 }
             } while (TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startTime) <= ServiceList.YouTube.getLoadingTimeout());
 
-            if (((StringUtils.isBlank(ServiceList.YouTube.getTokens()) && androidStreamingData == null)
+            if (StringUtils.isBlank(ServiceList.YouTube.getTokens()) && androidStreamingData == null) {
+                safariCall = fetchSafariJsonPlayer(contentCountry, localization, videoId);
+                startTime = System.nanoTime();
+                do {
+                    if (safariCall.isFinished()) {
+                        break;
+                    }
+                } while (TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startTime) <= ServiceList.YouTube.getLoadingTimeout());
+            }
+
+            if (((StringUtils.isBlank(ServiceList.YouTube.getTokens()) && androidStreamingData == null
+                    && safariStreamingData == null)
                     || ((StringUtils.isNotBlank(ServiceList.YouTube.getTokens()) && safariStreamingData == null)))
                     || nextResponse == null) {
                 for (Throwable e: errors) {
@@ -1410,11 +1421,13 @@ public class YoutubeStreamExtractor extends StreamExtractor {
                 throw new ExtractionException("Error occurs when fetching the page. Try increase the loading timeout in Settings.");
             }
 
-        // Check playability status from the actual stream data source
-        if (playerResponse != null) {
-            checkPlayabilityStatus(playerResponse.getObject("playabilityStatus"), videoId);
-            setStreamType();
+        if (playerResponse == null) {
+            throw new ContentNotSupportedException("YouTube returned SABR-only streaming data without usable stream URLs. "
+                    + "Try logging in to get HLS fallback streams.");
         }
+
+        checkPlayabilityStatus(playerResponse.getObject("playabilityStatus"), videoId);
+        setStreamType();
 
         if (streamType != StreamType.LIVE_STREAM && isSabrOnlyResponse()
                 && getHlsManifestUrlFromStreamingData().isEmpty()) {
